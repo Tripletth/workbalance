@@ -30,8 +30,9 @@ public:
     std::string getString() const {
         char buffer[MaxLength + 1];
         HWND item = handle();
-        ::GetWindowText(item, buffer, MaxLength + 1);
-        return {buffer, static_cast<std::size_t>(::GetWindowTextLength(item))};
+        std::size_t n = std::min(::GetWindowTextLength(item), MaxLength);
+        ::GetWindowText(item, buffer, n + 1);
+        return {buffer, n};
     }
     int getInt() const {
         try {
@@ -65,12 +66,11 @@ public:
     std::string toString() const {
         const int hours = seconds / 3600;
         const int minutes = (seconds / 60) - (hours * 60);
-        const int mod_seconds = seconds % 60;
         std::stringstream ss;
         ss << std::setfill('0')
            << std::setw(2) << hours << ':'
            << std::setw(2) << minutes << ':'
-           << std::setw(2) << mod_seconds;
+           << std::setw(2) << seconds % 60;
         return ss.str();
     }
     void set(int s) { seconds = s; }
