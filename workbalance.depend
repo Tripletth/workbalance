@@ -1,14 +1,13 @@
 # depslib dependency file v1.0
-1612560309 source:c:\users\hein\documents\codeblocks projects\workbalance\main.cpp
+1612610894 source:c:\users\hein\documents\codeblocks projects\workbalance\main.cpp
 	<windows.h>
 	<commctrl.h>
-	<stdio.h>
 	"resource.h"
-	<string>
-	<vector>
-	<iostream>
+	<memory>
 	<sstream>
+	<string>
 	"util.h"
+	<vector>
 
 1612558404 c:\users\hein\documents\codeblocks projects\workbalance\resource.h
 
@@ -18,7 +17,9 @@
 	<richedit.h>
 	"resource.h"
 
-1612560127 c:\users\hein\documents\codeblocks projects\workbalance\util.h
+1612610715 c:\users\hein\documents\codeblocks projects\workbalance\util.h
 	<iomanip>
 	<sstream>
+	<string>
+	<windows.h>
 

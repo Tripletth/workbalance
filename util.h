@@ -2,34 +2,38 @@
 
 #include <iomanip>
 #include <sstream>
+#include <string>
+#include <windows.h>
 
+namespace util {
 class Control {
 public:
     Control(int id, HWND parent) : id{id}, parent{parent} {}
-    void setText(const std::string& str) {
-        SetWindowText(handle(), str.c_str());
+    void setText(const std::string& str) const {
+        ::SetWindowText(handle(), str.c_str());
     }
 protected:
-    HWND handle() {
-        return GetDlgItem(parent, id);
+    HWND handle() const {
+        return ::GetDlgItem(parent, id);
     }
-public:
-    int id;
 private:
-    HWND parent;
+    const int id;
+    const HWND parent;
 };
 
-template <int MaxSize = 1024>
+template <int MaxLength = 1024>
 class EditControl : public Control {
 public:
-    EditControl(int id, HWND parent) : Control{id, parent} {}
-    std::string getString() {
-        char buffer[MaxSize + 1];
-        HWND item = handle();
-        GetWindowText(item, buffer, MaxSize + 1);
-        return {buffer, static_cast<std::size_t>(GetWindowTextLength(item))};
+    EditControl(int id, HWND parent) : Control{id, parent} {
+        ::SendMessage(handle(), EM_SETLIMITTEXT, MaxLength, 0);
     }
-    int getInt() {
+    std::string getString() const {
+        char buffer[MaxLength + 1];
+        HWND item = handle();
+        ::GetWindowText(item, buffer, MaxLength + 1);
+        return {buffer, static_cast<std::size_t>(::GetWindowTextLength(item))};
+    }
+    int getInt() const {
         try {
             return std::stoi(getString());
         } catch(std::invalid_argument& e) {
@@ -52,18 +56,16 @@ public:
             ++seconds;
             break;
         case Mode::DOWN:
-            if (seconds == 0) {
+            if (--seconds <= 0) {
                 pause();
-            } else {
-                --seconds;
             }
             break;
         }
     }
-    std::string toString() {
-        int hours = seconds / 3600;
-        int minutes = (seconds / 60) - (hours * 60);
-        int mod_seconds = seconds % 60;
+    std::string toString() const {
+        const int hours = seconds / 3600;
+        const int minutes = (seconds / 60) - (hours * 60);
+        const int mod_seconds = seconds % 60;
         std::stringstream ss;
         ss << std::setfill('0')
            << std::setw(2) << hours << ':'
@@ -79,3 +81,4 @@ private:
     Mode mode;
     int seconds;
 };
+} // namespace util

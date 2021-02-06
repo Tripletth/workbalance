@@ -1,107 +1,116 @@
 #include <windows.h>
 #include <commctrl.h>
-#include <stdio.h>
 #include "resource.h"
-#include <string>
-#include <vector>
-#include <iostream>
+
+#include <memory>
 #include <sstream>
+#include <string>
 #include "util.h"
+#include <vector>
 
 namespace
 {
-HINSTANCE hInst;
-const int TIMER_WERKEN = 1;
-const int TIMER_PAUZE = 2;
-const int TIMER_UPDATE = 3;
+namespace controls
+{
+std::unique_ptr<util::EditControl<3>> worktime;
+std::unique_ptr<util::EditControl<3>> breaktime;
+std::unique_ptr<util::Control> clock;
+std::unique_ptr<util::Control> line1;
+} // namespace controls
 
-DigitalClock digitalClock;
-}
+const int TIMER_ALERT = 1;
+const int TIMER_UPDATE = 2;
+util::DigitalClock digitalClock;
+} // namespace
 
-void startTimer(HWND hwndDlg, int id, int timeout, TIMERPROC callback) {
-    KillTimer(hwndDlg, id);
-    SetTimer(hwndDlg, id, timeout, callback);
-}
-
+namespace dialog {
 void alert(HWND hwndDlg) {
-    static std::unique_ptr<FLASHWINFO> flashInfo;
-    if (!flashInfo) {
-        flashInfo = std::make_unique<FLASHWINFO>();
-        flashInfo->cbSize = sizeof(FLASHWINFO);
-        flashInfo->hwnd = hwndDlg;
-        flashInfo->dwFlags = FLASHW_ALL;
-        flashInfo->uCount = 3;
-    }
-    SetWindowPos(hwndDlg, HWND_TOPMOST, 0, 0, 0 , 0, SWP_SHOWWINDOW|SWP_NOSIZE|SWP_NOMOVE);
-    MessageBeep(MB_ICONERROR);
-    FlashWindowEx(flashInfo.get());
+    static FLASHWINFO flashWInfo = {
+        .cbSize = sizeof(FLASHWINFO),
+        .hwnd = hwndDlg,
+        .dwFlags = FLASHW_ALL,
+        .uCount = 3
+    };
+    ::SetWindowPos(hwndDlg, HWND_TOPMOST, 0, 0, 0, 0, SWP_SHOWWINDOW|SWP_NOSIZE|SWP_NOMOVE);
+    ::MessageBeep(MB_ICONERROR);
+    ::FlashWindowEx(&flashWInfo);
 }
 
 void deactivate(HWND hwndDlg) {
-    SetWindowPos(hwndDlg, HWND_BOTTOM, 0, 0, 0, 0, SWP_NOSIZE|SWP_NOMOVE);
-    SendMessage(hwndDlg, WM_KILLFOCUS, 0, 0);
+    ::SetWindowPos(hwndDlg, HWND_BOTTOM, 0, 0, 0, 0, SWP_NOSIZE|SWP_NOMOVE);
+    ::SendMessage(hwndDlg, WM_KILLFOCUS, 0, 0);
+}
+} // namespace dialog
+
+namespace timer {
+void start(HWND hwndDlg, int id, int timeout, TIMERPROC callback) {
+    ::KillTimer(hwndDlg, id);
+    ::SetTimer(hwndDlg, id, timeout, callback);
 }
 
-void handleTimer(HWND hwndDlg, UINT arg1, UINT_PTR id, DWORD arg4) {
-    KillTimer(hwndDlg, id);
-
+void handle(HWND hwndDlg, UINT arg1, UINT_PTR id, DWORD arg4) {
+    ::KillTimer(hwndDlg, id);
     switch(id) {
-    case TIMER_WERKEN:
-    case TIMER_PAUZE:
-        alert(hwndDlg);
+    case TIMER_ALERT:
+        dialog::alert(hwndDlg);
         break;
-    case TIMER_UPDATE: {
+    case TIMER_UPDATE:
         digitalClock.tick();
-        Control(DLG_MAIN_TIME, hwndDlg).setText(digitalClock.toString());
-        startTimer(hwndDlg, TIMER_UPDATE, 1 * 1000, handleTimer);
-        break;
-    }
-    default:
-        break;
-    }
-}
-
-void handleCommand(int command, HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam) {
-    auto handle = [hwndDlg](auto id, auto timer, auto&& txt) {
-        int seconds = std::max(1, EditControl<3>(id, hwndDlg).getInt()) * 60;
-        startTimer(hwndDlg, timer, seconds * 1000, handleTimer);
-        digitalClock.set(seconds);
-        digitalClock.down();
-        Control(DLG_MAIN_LINE1_TXT, hwndDlg).setText(txt);
-        deactivate(hwndDlg);
-    };
-    switch(command) {
-    case DLG_MAIN_PAUZEER:
-        handle(DLG_MAIN_PAUZETIJD, TIMER_PAUZE, "Pauze duurt nog:");
-        break;
-    case DLG_MAIN_WERKEN:
-        handle(DLG_MAIN_WERKTIJD, TIMER_WERKEN, "Volgende pauze:");
+        controls::clock->setText(digitalClock.toString());
+        timer::start(hwndDlg, TIMER_UPDATE, 1 * 1000, timer::handle);
         break;
     default:
         break;
     }
 }
+} // namespace timer
 
-BOOL CALLBACK DlgMain(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam) {
+
+namespace callback {
+template <int N>
+void button(HWND hwndDlg, util::EditControl<N>* edit, const char* const txt) {
+    const int seconds = std::max(1, edit->getInt()) * 60;
+    timer::start(hwndDlg, TIMER_ALERT, seconds * 1000, timer::handle);
+    digitalClock.set(seconds);
+    digitalClock.down();
+    controls::line1->setText(txt);
+    controls::clock->setText(digitalClock.toString());
+    dialog::deactivate(hwndDlg);
+}
+
+BOOL CALLBACK dlgMain(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam) {
     switch(uMsg) {
     case WM_INITDIALOG: {
-        EditControl<3>(DLG_MAIN_WERKTIJD, hwndDlg).setText("60");
-        EditControl<3>(DLG_MAIN_PAUZETIJD, hwndDlg).setText("5");
-        startTimer(hwndDlg, TIMER_UPDATE, 1 * 1000, handleTimer);
+        controls::worktime = std::make_unique<util::EditControl<3>>(DLG_MAIN_WERKTIJD, hwndDlg);
+        controls::breaktime = std::make_unique<util::EditControl<3>>(DLG_MAIN_PAUZETIJD, hwndDlg);
+        controls::clock = std::make_unique<util::Control>(DLG_MAIN_TIME, hwndDlg);
+        controls::line1 = std::make_unique<util::Control>(DLG_MAIN_LINE1_TXT, hwndDlg);
+        controls::worktime->setText("60");
+        controls::breaktime->setText("5");
+        timer::start(hwndDlg, TIMER_UPDATE, 1 * 1000, timer::handle);
         return true;
     }
     case WM_CLOSE:
-        EndDialog(hwndDlg, 0);
+        ::EndDialog(hwndDlg, 0);
         return true;
     case WM_COMMAND:
-        handleCommand(LOWORD(wParam), hwndDlg, uMsg, wParam, lParam);
+        switch(LOWORD(wParam)) {
+        case DLG_MAIN_PAUZEER:
+            callback::button(hwndDlg, controls::breaktime.get(), "Pauze duurt nog:");
+            break;
+        case DLG_MAIN_WERKEN:
+            callback::button(hwndDlg, controls::worktime.get(), "Volgende pauze:");
+            break;
+        default:
+            break;
+        }
         return true;
     }
     return false;
 }
+} // namespace callback
 
 int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nShowCmd) {
-    hInst = hInstance;
-    InitCommonControls();
-    return DialogBox(hInst, MAKEINTRESOURCE(DLG_MAIN), NULL, (DLGPROC)DlgMain);
+    ::InitCommonControls();
+    return ::DialogBox(hInstance, MAKEINTRESOURCE(DLG_MAIN), NULL, (DLGPROC)callback::dlgMain);
 }
