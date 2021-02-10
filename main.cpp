@@ -1,12 +1,11 @@
+#define WINVER _WIN32_WINNT_WIN10
+
 #include <windows.h>
 #include <commctrl.h>
 #include "resource.h"
 
 #include <memory>
-#include <sstream>
-#include <string>
 #include "util.h"
-#include <vector>
 
 namespace
 {
@@ -18,46 +17,76 @@ std::unique_ptr<util::Control> clock;
 std::unique_ptr<util::Control> line1;
 } // namespace controls
 
-const int TIMER_ALERT = 1;
-const int TIMER_UPDATE = 2;
 util::DigitalClock digitalClock;
 } // namespace
 
+namespace tray {
+constexpr unsigned int id = 7777;
+constexpr int MESSAGE = WM_USER + 1;
+HICON icon = ::LoadIcon(NULL, IDI_SHIELD);
+NOTIFYICONDATA data = {
+    .cbSize = sizeof(NOTIFYICONDATA),
+    .hWnd = 0,
+    .uID = id,
+    .uFlags = NIF_STATE | NIF_ICON | NIF_MESSAGE,
+    .uCallbackMessage = tray::MESSAGE,
+    .hIcon = icon,
+    .dwState = NIS_HIDDEN,
+    .dwStateMask = 0,
+    .uTimeout = 0,
+    .dwInfoFlags = NIIF_NONE
+};
+void add(HWND hwndDlg) {
+    tray::data.hWnd = hwndDlg;
+    ::Shell_NotifyIconA(NIM_ADD, &tray::data);
+}
+void remove(HWND hWndDlg) {
+    ::Shell_NotifyIconA(NIM_DELETE, &tray::data);
+}
+} // namespace tray
+
 namespace dialog {
+void activate(HWND hwndDlg) {
+    ::ShowWindow(hwndDlg, SW_SHOW);
+    ::SetWindowPos(hwndDlg, HWND_TOPMOST, 0, 0, 0, 0, SWP_SHOWWINDOW|SWP_NOSIZE|SWP_NOMOVE);
+}
 void alert(HWND hwndDlg) {
     static FLASHWINFO flashWInfo = {
         .cbSize = sizeof(FLASHWINFO),
         .hwnd = hwndDlg,
         .dwFlags = FLASHW_ALL,
-        .uCount = 3
+        .uCount = 2
     };
-    ::SetWindowPos(hwndDlg, HWND_TOPMOST, 0, 0, 0, 0, SWP_SHOWWINDOW|SWP_NOSIZE|SWP_NOMOVE);
+    dialog::activate(hwndDlg);
     ::MessageBeep(MB_ICONERROR);
     ::FlashWindowEx(&flashWInfo);
 }
-
 void deactivate(HWND hwndDlg) {
     ::SetWindowPos(hwndDlg, HWND_BOTTOM, 0, 0, 0, 0, SWP_NOSIZE|SWP_NOMOVE);
     ::SendMessage(hwndDlg, WM_KILLFOCUS, 0, 0);
+    ::ShowWindow(hwndDlg, SW_HIDE);
 }
 } // namespace dialog
 
 namespace timer {
-void start(HWND hwndDlg, int id, int timeout, TIMERPROC callback) {
+constexpr int ALERT = 1;
+constexpr int UPDATE = 2;
+void handle(HWND, UINT, UINT_PTR, DWORD);
+void start(HWND hwndDlg, int id, int timeout) {
     ::KillTimer(hwndDlg, id);
-    ::SetTimer(hwndDlg, id, timeout, callback);
+    ::SetTimer(hwndDlg, id, timeout, timer::handle);
 }
-
 void handle(HWND hwndDlg, UINT arg1, UINT_PTR id, DWORD arg4) {
     ::KillTimer(hwndDlg, id);
     switch(id) {
-    case TIMER_ALERT:
+    case timer::ALERT:
         dialog::alert(hwndDlg);
+        timer::start(hwndDlg, timer::ALERT, 3 * 1000);
         break;
-    case TIMER_UPDATE:
+    case timer::UPDATE:
         digitalClock.tick();
         controls::clock->setText(digitalClock.toString());
-        timer::start(hwndDlg, TIMER_UPDATE, 1 * 1000, timer::handle);
+        timer::start(hwndDlg, timer::UPDATE, 1 * 1000);
         break;
     default:
         break;
@@ -65,19 +94,17 @@ void handle(HWND hwndDlg, UINT arg1, UINT_PTR id, DWORD arg4) {
 }
 } // namespace timer
 
-
 namespace callback {
 template <int N>
 void button(HWND hwndDlg, util::EditControl<N>* edit, const char* const txt) {
     const int seconds = std::max(1, edit->getInt()) * 60;
-    timer::start(hwndDlg, TIMER_ALERT, seconds * 1000, timer::handle);
+    timer::start(hwndDlg, timer::ALERT, seconds * 1000);
     digitalClock.set(seconds);
     digitalClock.down();
     controls::line1->setText(txt);
     controls::clock->setText(digitalClock.toString());
     dialog::deactivate(hwndDlg);
 }
-
 BOOL CALLBACK dlgMain(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam) {
     switch(uMsg) {
     case WM_INITDIALOG: {
@@ -87,11 +114,17 @@ BOOL CALLBACK dlgMain(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam) {
         controls::line1 = std::make_unique<util::Control>(DLG_MAIN_LINE1_TXT, hwndDlg);
         controls::worktime->setText("60");
         controls::breaktime->setText("5");
-        timer::start(hwndDlg, TIMER_UPDATE, 1 * 1000, timer::handle);
+        ::SetWindowLong(hwndDlg, GWL_STYLE, ::GetWindowLong(hwndDlg, GWL_STYLE) | WS_MINIMIZEBOX);
+        tray::add(hwndDlg);
+        timer::start(hwndDlg, timer::UPDATE, 1 * 1000);
         return true;
     }
     case WM_CLOSE:
-        ::EndDialog(hwndDlg, 0);
+        if (::MessageBox(hwndDlg, "Wil je echt afsluiten?", "Afsluiten", MB_YESNO | MB_ICONQUESTION) == IDYES) {
+            ::DestroyWindow(hwndDlg);
+            tray::remove(hwndDlg);
+            ::EndDialog(hwndDlg, 0);
+        }
         return true;
     case WM_COMMAND:
         switch(LOWORD(wParam)) {
@@ -105,6 +138,16 @@ BOOL CALLBACK dlgMain(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam) {
             break;
         }
         return true;
+    case tray::MESSAGE:
+        if (LOWORD(lParam) == WM_LBUTTONDBLCLK) {
+            dialog::activate(hwndDlg);
+            return true;
+        }
+    case WM_SYSCOMMAND:
+        if (wParam == SC_MINIMIZE) {
+            dialog::deactivate(hwndDlg);
+            return true;
+        }
     }
     return false;
 }

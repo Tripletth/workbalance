@@ -10,26 +10,24 @@ class Control {
 public:
     Control(int id, HWND parent) : id{id}, parent{parent} {}
     void setText(const std::string& str) const {
-        ::SetWindowText(handle(), str.c_str());
+        ::SetWindowText(getHandle(), str.c_str());
     }
 protected:
-    HWND handle() const {
+    HWND getHandle() const {
         return ::GetDlgItem(parent, id);
     }
 private:
     const int id;
     const HWND parent;
 };
-
-template <int MaxLength = 1024>
-class EditControl : public Control {
+template <int MaxLength = 1024> class EditControl : public Control {
 public:
     EditControl(int id, HWND parent) : Control{id, parent} {
-        ::SendMessage(handle(), EM_SETLIMITTEXT, MaxLength, 0);
+        ::SendMessage(getHandle(), EM_SETLIMITTEXT, MaxLength, 0);
     }
     std::string getString() const {
         char buffer[MaxLength + 1];
-        HWND item = handle();
+        HWND item = getHandle();
         std::size_t n = std::min(::GetWindowTextLength(item), MaxLength);
         ::GetWindowText(item, buffer, n + 1);
         return {buffer, n};
@@ -44,7 +42,6 @@ public:
         }
     }
 };
-
 class DigitalClock {
     enum class Mode { UP, DOWN, PAUSE };
 public:
@@ -63,7 +60,7 @@ public:
             break;
         }
     }
-    std::string toString() const {
+    auto toString() const {
         const int hours = seconds / 3600;
         const int minutes = (seconds / 60) - (hours * 60);
         std::stringstream ss;
